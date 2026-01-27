@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { YoutubeTranscript } from "youtube-transcript";
 import type { RequestHandler } from "./$types";
+import { getTranslation, supportedLangs } from "$lib/i18n";
 
 function extractVideoId(url: string): string | null {
 	const patterns = [
@@ -48,53 +49,38 @@ function transcriptToText(items: TranscriptItem[]): string {
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { url } = await request.json();
+	const { url, lang = "en" } = await request.json();
+	const t = getTranslation(lang);
 
 	if (!url) {
-		return json({ error: "URLが必要です" }, { status: 400 });
+		return json({ error: t.errorUrlRequired }, { status: 400 });
 	}
 
 	const videoId = extractVideoId(url);
 	if (!videoId) {
-		return json({ error: "無効なYouTube URLです" }, { status: 400 });
+		return json({ error: t.errorInvalidUrl }, { status: 400 });
 	}
 
-	try {
-		const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
-			lang: "ja",
-		});
+	// Try with preferred language first, then fallback
+	const langsToTry = [lang, ...supportedLangs.filter((l) => l !== lang), undefined];
 
-		if (!transcript || transcript.length === 0) {
-			return json({ error: "この動画には字幕がありません" }, { status: 404 });
-		}
-
-		const srt = transcriptToSrt(transcript);
-		const text = transcriptToText(transcript);
-
-		return json({ srt, text, videoId });
-	} catch (error) {
-		console.error("Transcript fetch error:", error);
-
-		// Try without language specification
+	for (const tryLang of langsToTry) {
 		try {
-			const transcript = await YoutubeTranscript.fetchTranscript(videoId);
-
-			if (!transcript || transcript.length === 0) {
-				return json({ error: "この動画には字幕がありません" }, { status: 404 });
-			}
-
-			const srt = transcriptToSrt(transcript);
-			const text = transcriptToText(transcript);
-
-			return json({ srt, text, videoId });
-		} catch {
-			return json(
-				{
-					error:
-						"字幕の取得に失敗しました。この動画には字幕がないか、取得できません。",
-				},
-				{ status: 500 },
+			const transcript = await YoutubeTranscript.fetchTranscript(
+				videoId,
+				tryLang ? { lang: tryLang } : undefined
 			);
+
+			if (transcript && transcript.length > 0) {
+				const srt = transcriptToSrt(transcript);
+				const text = transcriptToText(transcript);
+				return json({ srt, text, videoId });
+			}
+		} catch {
+			// Try next language
+			continue;
 		}
 	}
+
+	return json({ error: t.errorFetchFailed }, { status: 500 });
 };
