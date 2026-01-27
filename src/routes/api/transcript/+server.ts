@@ -1,18 +1,11 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { readFile, unlink } from 'fs/promises';
-import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
-import { join } from 'path';
-
-const execAsync = promisify(exec);
+import { json } from "@sveltejs/kit";
+import { YoutubeTranscript } from "youtube-transcript";
+import type { RequestHandler } from "./$types";
 
 function extractVideoId(url: string): string | null {
 	const patterns = [
 		/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-		/^([a-zA-Z0-9_-]{11})$/
+		/^([a-zA-Z0-9_-]{11})$/,
 	];
 
 	for (const pattern of patterns) {
@@ -22,134 +15,86 @@ function extractVideoId(url: string): string | null {
 	return null;
 }
 
-function vttToSrt(vtt: string): string {
-	const lines = vtt.split('\n');
-	const srtLines: string[] = [];
-	let counter = 1;
-	let i = 0;
+function formatTimestamp(seconds: number): string {
+	const hours = Math.floor(seconds / 3600);
+	const minutes = Math.floor((seconds % 3600) / 60);
+	const secs = Math.floor(seconds % 60);
+	const ms = Math.floor((seconds % 1) * 1000);
 
-	// Skip WEBVTT header
-	while (i < lines.length && !lines[i].includes('-->')) {
-		i++;
+	if (hours > 0) {
+		return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
 	}
-
-	while (i < lines.length) {
-		const line = lines[i].trim();
-
-		if (line.includes('-->')) {
-			// Convert timestamp format: 00:00:00.000 --> 00:00:00.000 to 00:00:00,000 --> 00:00:00,000
-			const timestamp = line.replace(/\./g, ',').replace(/<[^>]*>/g, '');
-			srtLines.push(String(counter));
-			srtLines.push(timestamp);
-			counter++;
-			i++;
-
-			// Collect text lines until empty line or next timestamp
-			const textLines: string[] = [];
-			while (i < lines.length) {
-				const textLine = lines[i].trim();
-				if (textLine === '' || textLine.includes('-->')) {
-					break;
-				}
-				// Remove VTT formatting tags
-				const cleanText = textLine.replace(/<[^>]*>/g, '');
-				if (cleanText) {
-					textLines.push(cleanText);
-				}
-				i++;
-			}
-			srtLines.push(textLines.join('\n'));
-			srtLines.push('');
-		} else {
-			i++;
-		}
-	}
-
-	return srtLines.join('\n');
+	return `00:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
 }
 
-function vttToText(vtt: string): string {
-	const lines = vtt.split('\n');
-	const textLines: string[] = [];
-	let i = 0;
+interface TranscriptItem {
+	text: string;
+	offset: number;
+	duration: number;
+}
 
-	// Skip WEBVTT header
-	while (i < lines.length && !lines[i].includes('-->')) {
-		i++;
-	}
+function transcriptToSrt(items: TranscriptItem[]): string {
+	return items
+		.map((item, index) => {
+			const startTime = item.offset / 1000;
+			const endTime = (item.offset + item.duration) / 1000;
+			return `${index + 1}\n${formatTimestamp(startTime)} --> ${formatTimestamp(endTime)}\n${item.text}\n`;
+		})
+		.join("\n");
+}
 
-	while (i < lines.length) {
-		const line = lines[i].trim();
-
-		if (line.includes('-->')) {
-			i++;
-			// Collect text lines
-			while (i < lines.length) {
-				const textLine = lines[i].trim();
-				if (textLine === '' || textLine.includes('-->')) {
-					break;
-				}
-				const cleanText = textLine.replace(/<[^>]*>/g, '');
-				if (cleanText) {
-					textLines.push(cleanText);
-				}
-				i++;
-			}
-		} else {
-			i++;
-		}
-	}
-
-	return textLines.join('\n');
+function transcriptToText(items: TranscriptItem[]): string {
+	return items.map((item) => item.text).join("\n");
 }
 
 export const POST: RequestHandler = async ({ request }) => {
 	const { url } = await request.json();
 
 	if (!url) {
-		return json({ error: 'URLが必要です' }, { status: 400 });
+		return json({ error: "URLが必要です" }, { status: 400 });
 	}
 
 	const videoId = extractVideoId(url);
 	if (!videoId) {
-		return json({ error: '無効なYouTube URLです' }, { status: 400 });
+		return json({ error: "無効なYouTube URLです" }, { status: 400 });
 	}
 
-	const tempId = randomUUID();
-	const tempPath = join(tmpdir(), tempId);
-	const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
 	try {
-		// Try to download Japanese subtitles first, then fall back to auto-generated
-		const cmd = `yt-dlp --write-auto-sub --sub-lang ja --skip-download -o "${tempPath}" "${youtubeUrl}" 2>&1`;
-		await execAsync(cmd, { timeout: 30000 });
+		const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
+			lang: "ja",
+		});
 
-		// Check if VTT file was created
-		const vttPath = `${tempPath}.ja.vtt`;
-		let vttContent: string;
-
-		try {
-			vttContent = await readFile(vttPath, 'utf-8');
-		} catch {
-			return json({ error: 'この動画には字幕がありません' }, { status: 404 });
+		if (!transcript || transcript.length === 0) {
+			return json({ error: "この動画には字幕がありません" }, { status: 404 });
 		}
 
-		const srt = vttToSrt(vttContent);
-		const text = vttToText(vttContent);
-
-		// Cleanup temp file
-		try {
-			await unlink(vttPath);
-		} catch {
-			// Ignore cleanup errors
-		}
+		const srt = transcriptToSrt(transcript);
+		const text = transcriptToText(transcript);
 
 		return json({ srt, text, videoId });
 	} catch (error) {
-		console.error('Transcript fetch error:', error);
-		return json(
-			{ error: '字幕の取得に失敗しました。この動画には字幕がないか、取得できません。' },
-			{ status: 500 }
-		);
+		console.error("Transcript fetch error:", error);
+
+		// Try without language specification
+		try {
+			const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+
+			if (!transcript || transcript.length === 0) {
+				return json({ error: "この動画には字幕がありません" }, { status: 404 });
+			}
+
+			const srt = transcriptToSrt(transcript);
+			const text = transcriptToText(transcript);
+
+			return json({ srt, text, videoId });
+		} catch {
+			return json(
+				{
+					error:
+						"字幕の取得に失敗しました。この動画には字幕がないか、取得できません。",
+				},
+				{ status: 500 },
+			);
+		}
 	}
 };

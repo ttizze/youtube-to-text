@@ -1,0 +1,57 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.3.13/schema.json",
+	"files": {
+		"includes": [
+			"**",
+			"!bun.lockb",
+			"!build",
+			"!.vscode",
+			"!.svelte-kit",
+			"!node_modules",
+			"!**/*.css",
+			"!coverage",
+			"!dist",
+			"!.cache",
+			"!**/*.svelte"
+		]
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"useSortedAttributes": "on"
+			}
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"correctness": {
+				"noUnusedImports": { "level": "warn", "fix": "safe" },
+				"useUniqueElementIds": "off"
+			},
+			"style": {
+				"noNonNullAssertion": "off"
+			}
+		}
+	},
+	"formatter": {
+		"enabled": true
+	},
+	"javascript": {
+		"parser": {
+			"unsafeParameterDecoratorsEnabled": true
+		},
+		"formatter": {
+			"enabled": true
+		}
+	},
+	"json": {
+		"parser": { "allowComments": true },
+		"formatter": {
+			"enabled": true,
+			"indentWidth": 2,
+			"lineWidth": 80
+		}
+	}
+}
