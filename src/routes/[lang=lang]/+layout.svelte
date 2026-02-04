@@ -1,11 +1,11 @@
 <script lang="ts">
-	import favicon from '$lib/assets/favicon.svg';
 	import { getTranslation, supportedLangs } from '$lib/i18n';
 	import { page } from '$app/stores';
 
 	let { children } = $props();
 
 	const siteUrl = 'https://youtube-text.pages.dev';
+	const ogImageUrl = `${siteUrl}/og-image.svg`;
 
 	const lang = $derived($page.params.lang ?? 'en');
 	const t = $derived(getTranslation(lang));
@@ -26,10 +26,22 @@
 			priceCurrency: lang === 'ja' ? 'JPY' : 'USD'
 		}
 	});
+
+	const faqStructuredData = $derived({
+		'@context': 'https://schema.org',
+		'@type': 'FAQPage',
+		mainEntity: t.faq.map((item) => ({
+			'@type': 'Question',
+			name: item.question,
+			acceptedAnswer: {
+				'@type': 'Answer',
+				text: item.answer
+			}
+		}))
+	});
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
 	<link rel="canonical" href={currentUrl} />
 
 	<!-- hreflang tags -->
@@ -50,14 +62,19 @@
 	<meta property="og:description" content={t.siteDescription} />
 	<meta property="og:site_name" content={t.siteName} />
 	<meta property="og:locale" content={lang === 'ja' ? 'ja_JP' : 'en_US'} />
+	<meta property="og:image" content={ogImageUrl} />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
 
 	<!-- Twitter -->
-	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={t.siteName} />
 	<meta name="twitter:description" content={t.siteDescription} />
+	<meta name="twitter:image" content={ogImageUrl} />
 
 	<!-- Structured Data (JSON-LD) -->
 	{@html `<script type="application/ld+json">${JSON.stringify(structuredData)}</script>`}
+	{@html `<script type="application/ld+json">${JSON.stringify(faqStructuredData)}</script>`}
 </svelte:head>
 
 {@render children()}

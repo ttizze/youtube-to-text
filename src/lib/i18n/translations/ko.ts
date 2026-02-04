@@ -27,5 +27,25 @@ export const ko: Translation = {
 	errorUrlRequired: 'URL이 필요합니다',
 	errorInvalidUrl: '유효하지 않은 YouTube URL입니다',
 	errorNoSubtitles: '이 동영상에는 자막이 없습니다',
-	errorFetchFailed: '자막을 가져오지 못했습니다. 이 동영상에는 자막이 없을 수 있습니다.'
+	errorFetchFailed: '자막을 가져오지 못했습니다. 이 동영상에는 자막이 없을 수 있습니다.',
+
+	// FAQ
+	faq: [
+		{
+			question: 'YouTube 동영상에서 자막을 어떻게 추출하나요?',
+			answer: 'YouTube 동영상 URL을 입력란에 붙여넣고 "자막 가져오기" 버튼을 클릭하세요. 도구가 자동으로 사용 가능한 자막을 추출합니다.'
+		},
+		{
+			question: '어떤 형식으로 자막을 다운로드할 수 있나요?',
+			answer: '일반 텍스트 형식(.txt) 또는 타임스탬프가 포함된 SRT 자막 형식(.srt)으로 다운로드할 수 있습니다.'
+		},
+		{
+			question: '이 도구는 무료인가요?',
+			answer: '네, 이 도구는 가입 없이 완전히 무료로 사용할 수 있습니다.'
+		},
+		{
+			question: '일부 동영상에서 자막을 사용할 수 없는 이유는 무엇인가요?',
+			answer: '일부 동영상은 업로더가 자막을 활성화하지 않았거나, 자동 생성 자막을 추출할 수 없는 경우가 있습니다.'
+		}
+	]
 };
