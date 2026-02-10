@@ -102,30 +102,74 @@
 
 	{#if text}
 		<div class="result">
-			<div class="toolbar">
-				<div class="tabs">
-					<button
-						class:active={viewMode === 'text'}
-						onclick={() => (viewMode = 'text')}
-					>
-						{t.viewModeText}
-					</button>
-					<button
-						class:active={viewMode === 'srt'}
-						onclick={() => (viewMode = 'srt')}
-					>
-						{t.viewModeSrt}
-					</button>
+				<div class="toolbar">
+					<div class="tabs">
+						<button
+							class="tool-button"
+							class:active={viewMode === 'text'}
+							onclick={() => (viewMode = 'text')}
+							aria-label={t.viewModeText}
+							title={t.viewModeText}
+						>
+							<span class="btn-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24">
+									<line x1="4" y1="7" x2="20" y2="7" />
+									<line x1="4" y1="12" x2="20" y2="12" />
+									<line x1="4" y1="17" x2="14" y2="17" />
+								</svg>
+							</span>
+							<span class="btn-label">{t.viewModeText}</span>
+						</button>
+						<button
+							class="tool-button"
+							class:active={viewMode === 'srt'}
+							onclick={() => (viewMode = 'srt')}
+							aria-label={t.viewModeSrt}
+							title={t.viewModeSrt}
+						>
+							<span class="btn-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24">
+									<path d="M7 4h10l3 3v13H7z" />
+									<path d="M17 4v3h3" />
+									<line x1="10" y1="12" x2="16" y2="12" />
+									<line x1="10" y1="16" x2="15" y2="16" />
+								</svg>
+							</span>
+							<span class="btn-label">{t.viewModeSrt}</span>
+						</button>
+					</div>
+					<div class="actions">
+						<button
+							class="tool-button"
+							onclick={copyToClipboard}
+							aria-label={copied ? t.copiedButton : t.copyButton}
+							title={copied ? t.copiedButton : t.copyButton}
+						>
+							<span class="btn-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24">
+									<rect x="9" y="9" width="11" height="11" rx="2" />
+									<rect x="4" y="4" width="11" height="11" rx="2" />
+								</svg>
+							</span>
+							<span class="btn-label">{copied ? t.copiedButton : t.copyButton}</span>
+						</button>
+						<button
+							class="tool-button"
+							onclick={downloadFile}
+							aria-label={viewMode === 'srt' ? t.downloadSrt : t.downloadText}
+							title={viewMode === 'srt' ? t.downloadSrt : t.downloadText}
+						>
+							<span class="btn-icon" aria-hidden="true">
+								<svg viewBox="0 0 24 24">
+									<line x1="12" y1="4" x2="12" y2="15" />
+									<polyline points="7,11 12,16 17,11" />
+									<line x1="5" y1="20" x2="19" y2="20" />
+								</svg>
+							</span>
+							<span class="btn-label">{viewMode === 'srt' ? t.downloadSrt : t.downloadText}</span>
+						</button>
+					</div>
 				</div>
-				<div class="actions">
-					<button onclick={copyToClipboard}>
-						{copied ? t.copiedButton : t.copyButton}
-					</button>
-					<button onclick={downloadFile}>
-						{viewMode === 'srt' ? t.downloadSrt : t.downloadText}
-					</button>
-				</div>
-			</div>
 			<pre>{viewMode === 'srt' ? srt : text}</pre>
 		</div>
 	{/if}
@@ -249,6 +293,30 @@
 		font-size: 0.875rem;
 	}
 
+	.tool-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.45rem;
+	}
+
+	.btn-icon {
+		display: inline-flex;
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+	}
+
+	.btn-icon svg {
+		width: 100%;
+		height: 100%;
+		stroke: currentColor;
+		fill: none;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
 	.tabs button.active {
 		background: #ff0000;
 		color: white;
@@ -267,6 +335,28 @@
 
 	.actions button:hover {
 		background: #555;
+	}
+
+	@media (max-width: 640px) {
+		.toolbar {
+			padding: 0.5rem;
+			gap: 0.5rem;
+		}
+
+		.tabs,
+		.actions {
+			gap: 0.4rem;
+		}
+
+		.tabs button,
+		.actions button {
+			min-width: 2.25rem;
+			padding: 0.5rem;
+		}
+
+		.btn-label {
+			display: none;
+		}
 	}
 
 	pre {
