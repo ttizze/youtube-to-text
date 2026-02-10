@@ -309,17 +309,17 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		gap: 0.45rem;
+		gap: 0.35rem;
 	}
 
 	.fetch-button {
-		min-width: 8.75rem;
+		min-width: 7.5rem;
 	}
 
 	.btn-icon {
 		display: inline-flex;
-		width: 1rem;
-		height: 1rem;
+		width: 0.9rem;
+		height: 0.9rem;
 		flex-shrink: 0;
 	}
 
@@ -368,6 +368,16 @@
 		.actions button {
 			min-width: 2.25rem;
 			padding: 0.5rem;
+		}
+
+		.fetch-button {
+			min-width: 2.75rem;
+			padding: 0.55rem;
+		}
+
+		.btn-icon {
+			width: 0.82rem;
+			height: 0.82rem;
 		}
 
 		.btn-label {

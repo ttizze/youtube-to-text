@@ -122,4 +122,61 @@ describe("fetchTranscriptWithFallback", () => {
 		expect(actual).toEqual([{ text: "hello", offset: 440, duration: 1200 }]);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	it("fallback は一時失敗時に再試行して復旧する", async () => {
+		let watchCount = 0;
+		const watchHtml = `<!doctype html><html>"INNERTUBE_API_KEY":"test-key","INNERTUBE_CLIENT_VERSION":"2.20260206.08.00"</html>`;
+		const playerResponse = {
+			captions: {
+				playerCaptionsTracklistRenderer: {
+					captionTracks: [{ languageCode: "ja", baseUrl: "https://www.youtube.com/api/timedtext?v=RZELBd78SDc" }],
+				},
+			},
+		};
+		const timedText = `<?xml version="1.0" encoding="utf-8" ?><timedtext format="3"><body><p t="440" d="8560"><s>自分</s><s>が</s></p></body></timedtext>`;
+
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+			if (url.includes("/watch")) {
+				watchCount += 1;
+				if (watchCount === 1) {
+					return new Response(`<html><title>Sorry...</title><div class="g-recaptcha"></div></html>`, {
+						status: 200,
+					});
+				}
+				return new Response(watchHtml, { status: 200 });
+			}
+			if (url.includes("/youtubei/v1/player")) {
+				return Response.json(playerResponse, { status: 200 });
+			}
+			if (url.includes("/api/timedtext")) {
+				return new Response(timedText, { status: 200 });
+			}
+			return new Response("", { status: 404 });
+		});
+
+		const youtubeFetchTranscript = vi.fn().mockResolvedValue([]);
+		const actual = await fetchTranscriptWithFallback("RZELBd78SDc", ["ja", "en", undefined], {
+			fetch: fetchMock as typeof fetch,
+			youtubeFetchTranscript,
+		});
+
+		expect(actual).toEqual([{ text: "自分が", offset: 440, duration: 8560 }]);
+		expect(watchCount).toBeGreaterThanOrEqual(2);
+	});
+
+	it("youtube-transcript には優先言語と無指定のみ投げる", async () => {
+		const youtubeFetchTranscript = vi.fn().mockRejectedValue(new Error("blocked"));
+		const fetchMock = vi.fn(async () => new Response("", { status: 404 }));
+
+		await fetchTranscriptWithFallback("RZELBd78SDc", ["ja", "en", "es", undefined], {
+			fetch: fetchMock as typeof fetch,
+			youtubeFetchTranscript,
+		});
+
+		expect(youtubeFetchTranscript).toHaveBeenCalledTimes(2);
+		expect(youtubeFetchTranscript).toHaveBeenNthCalledWith(1, "RZELBd78SDc", { lang: "ja" });
+		expect(youtubeFetchTranscript).toHaveBeenNthCalledWith(2, "RZELBd78SDc", undefined);
+	});
 });

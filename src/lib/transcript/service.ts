@@ -51,6 +51,7 @@ const ANDROID_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Andro
 const DEFAULT_WEB_CLIENT_VERSION = "2.20260206.08.00";
 const DEFAULT_ANDROID_CLIENT_VERSION = "20.10.38";
 const YOUTUBE_VIDEO_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
+const FALLBACK_RETRY_DELAYS_MS = [0, 300, 900];
 
 export function extractVideoId(input: string): string | null {
 	const value = input.trim();
@@ -145,8 +146,9 @@ export async function fetchTranscriptWithFallback(
 		((targetVideoId, config) => YoutubeTranscript.fetchTranscript(targetVideoId, config));
 
 	const normalizedLangs = normalizeLangs(langsToTry);
+	const youtubeTranscriptLangs = buildYoutubeTranscriptLangs(normalizedLangs);
 
-	for (const lang of normalizedLangs) {
+	for (const lang of youtubeTranscriptLangs) {
 		try {
 			const transcript = await youtubeFetchTranscript(videoId, lang ? { lang } : undefined);
 			const normalized = normalizeYoutubeTranscriptItems(transcript);
@@ -159,7 +161,19 @@ export async function fetchTranscriptWithFallback(
 	}
 
 	const fetchImpl = deps.fetch ?? fetch;
-	return fetchTranscriptFromInnertube(videoId, normalizedLangs, fetchImpl);
+
+	for (const delayMs of FALLBACK_RETRY_DELAYS_MS) {
+		if (delayMs > 0) {
+			await sleep(delayMs);
+		}
+
+		const fallbackResult = await fetchTranscriptFromInnertube(videoId, normalizedLangs, fetchImpl);
+		if (fallbackResult.length > 0) {
+			return fallbackResult;
+		}
+	}
+
+	return [];
 }
 
 function normalizeLangs(langs: Array<string | undefined>): Array<string | undefined> {
@@ -182,6 +196,23 @@ function normalizeLangs(langs: Array<string | undefined>): Array<string | undefi
 
 	normalized.push(undefined);
 	return normalized;
+}
+
+function buildYoutubeTranscriptLangs(langs: Array<string | undefined>): Array<string | undefined> {
+	const firstPreferredLang = langs.find((lang) => !!lang);
+	const candidates = [firstPreferredLang, undefined];
+	const deduped: Array<string | undefined> = [];
+	for (const candidate of candidates) {
+		if (deduped.includes(candidate)) {
+			continue;
+		}
+		deduped.push(candidate);
+	}
+	return deduped;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeYoutubeTranscriptItems(items: RawTranscriptItem[]): TranscriptItem[] {
@@ -211,78 +242,120 @@ async function fetchTranscriptFromInnertube(
 	langsToTry: Array<string | undefined>,
 	fetchImpl: typeof fetch
 ): Promise<TranscriptItem[]> {
-	const watchPageResponse = await safeFetchText(fetchImpl, `https://www.youtube.com/watch?v=${videoId}&hl=en`, {
-		headers: {
-			"User-Agent": WEB_USER_AGENT,
-			"Accept-Language": "en-US,en;q=0.8",
-		},
-	});
-
-	if (!watchPageResponse) {
-		return [];
-	}
-
-	const apiKey = watchPageResponse.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1];
-	if (!apiKey) {
-		return [];
-	}
-
-	const webClientVersion =
-		watchPageResponse.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] ??
-		DEFAULT_WEB_CLIENT_VERSION;
-
-	const clients: InnertubeClientConfig[] = [
-		{
-			clientName: "ANDROID",
-			clientVersion: DEFAULT_ANDROID_CLIENT_VERSION,
-			xYoutubeClientName: "3",
-			userAgent: ANDROID_USER_AGENT,
-			contextClient: {
-				clientName: "ANDROID",
-				clientVersion: DEFAULT_ANDROID_CLIENT_VERSION,
-				androidSdkVersion: 30,
-				hl: "en",
-				gl: "US",
-			},
-		},
-		{
-			clientName: "WEB",
-			clientVersion: webClientVersion,
-			xYoutubeClientName: "1",
-			userAgent: WEB_USER_AGENT,
-			contextClient: {
-				clientName: "WEB",
-				clientVersion: webClientVersion,
-				hl: "en",
-				gl: "US",
-				utcOffsetMinutes: 0,
-			},
-		},
+	const watchPageUrls = [
+		`https://www.youtube.com/watch?v=${videoId}&hl=en`,
+		`https://www.youtube.com/watch?v=${videoId}&bpctr=9999999999&has_verified=1&hl=en`,
+		`https://m.youtube.com/watch?v=${videoId}&hl=en`,
 	];
 
-	for (const client of clients) {
-		const tracklist = await fetchTracklist(fetchImpl, apiKey, videoId, client);
-		if (!tracklist || !tracklist.captionTracks || tracklist.captionTracks.length === 0) {
+	for (const watchPageUrl of watchPageUrls) {
+		const watchPageResponse = await safeFetchText(fetchImpl, watchPageUrl, {
+			headers: {
+				"User-Agent": WEB_USER_AGENT,
+				"Accept-Language": "en-US,en;q=0.8",
+			},
+		});
+		if (!watchPageResponse || isBlockedBody(watchPageResponse)) {
 			continue;
 		}
 
-		const timedTextUrls = buildTimedTextUrlCandidates(tracklist.captionTracks, langsToTry);
-		for (const timedTextUrl of timedTextUrls) {
-			const transcriptBody = await safeFetchText(fetchImpl, timedTextUrl, {
-				headers: {
-					"User-Agent": client.userAgent,
-					"Accept-Language": "en-US,en;q=0.8",
-				},
-			});
+		const directTracklist = extractTracklistFromWatchPage(watchPageResponse);
+		if (directTracklist) {
+			const directTranscript = await fetchTranscriptFromTracklist(
+				directTracklist,
+				langsToTry,
+				fetchImpl,
+				WEB_USER_AGENT
+			);
+			if (directTranscript.length > 0) {
+				return directTranscript;
+			}
+		}
 
-			if (!transcriptBody || isBlockedBody(transcriptBody)) {
+		const apiKey = watchPageResponse.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1];
+		if (!apiKey) {
+			continue;
+		}
+
+		const webClientVersion =
+			watchPageResponse.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] ??
+			DEFAULT_WEB_CLIENT_VERSION;
+
+		const clients: InnertubeClientConfig[] = [
+			{
+				clientName: "ANDROID",
+				clientVersion: DEFAULT_ANDROID_CLIENT_VERSION,
+				xYoutubeClientName: "3",
+				userAgent: ANDROID_USER_AGENT,
+				contextClient: {
+					clientName: "ANDROID",
+					clientVersion: DEFAULT_ANDROID_CLIENT_VERSION,
+					androidSdkVersion: 30,
+					hl: "en",
+					gl: "US",
+				},
+			},
+			{
+				clientName: "WEB",
+				clientVersion: webClientVersion,
+				xYoutubeClientName: "1",
+				userAgent: WEB_USER_AGENT,
+				contextClient: {
+					clientName: "WEB",
+					clientVersion: webClientVersion,
+					hl: "en",
+					gl: "US",
+					utcOffsetMinutes: 0,
+				},
+			},
+		];
+
+		for (const client of clients) {
+			const tracklist = await fetchTracklist(fetchImpl, apiKey, videoId, client);
+			if (!tracklist || !tracklist.captionTracks || tracklist.captionTracks.length === 0) {
 				continue;
 			}
 
-			const parsed = parseTranscriptBody(transcriptBody);
-			if (parsed.length > 0) {
-				return parsed;
+			const transcript = await fetchTranscriptFromTracklist(
+				tracklist,
+				langsToTry,
+				fetchImpl,
+				client.userAgent
+			);
+			if (transcript.length > 0) {
+				return transcript;
 			}
+		}
+	}
+
+	return [];
+}
+
+async function fetchTranscriptFromTracklist(
+	tracklist: TracklistRenderer,
+	langsToTry: Array<string | undefined>,
+	fetchImpl: typeof fetch,
+	userAgent: string
+): Promise<TranscriptItem[]> {
+	if (!tracklist.captionTracks || tracklist.captionTracks.length === 0) {
+		return [];
+	}
+
+	const timedTextUrls = buildTimedTextUrlCandidates(tracklist.captionTracks, langsToTry);
+	for (const timedTextUrl of timedTextUrls) {
+		const transcriptBody = await safeFetchText(fetchImpl, timedTextUrl, {
+			headers: {
+				"User-Agent": userAgent,
+				"Accept-Language": "en-US,en;q=0.8",
+			},
+		});
+		if (!transcriptBody || isBlockedBody(transcriptBody)) {
+			continue;
+		}
+
+		const parsed = parseTranscriptBody(transcriptBody);
+		if (parsed.length > 0) {
+			return parsed;
 		}
 	}
 
@@ -324,6 +397,99 @@ async function fetchTracklist(
 	} catch {
 		return null;
 	}
+}
+
+function extractTracklistFromWatchPage(watchPageHtml: string): TracklistRenderer | null {
+	const tracklistFromCaptionsSplit = extractTracklistFromCaptionsSplit(watchPageHtml);
+	if (tracklistFromCaptionsSplit) {
+		return tracklistFromCaptionsSplit;
+	}
+
+	const playerResponseJson = extractJsonObjectAfterMarker(watchPageHtml, "ytInitialPlayerResponse =");
+	if (!playerResponseJson) {
+		return null;
+	}
+
+	try {
+		const playerResponse = JSON.parse(playerResponseJson) as PlayerResponse;
+		return playerResponse.captions?.playerCaptionsTracklistRenderer ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function extractTracklistFromCaptionsSplit(watchPageHtml: string): TracklistRenderer | null {
+	const splittedByCaptions = watchPageHtml.split('"captions":');
+	if (splittedByCaptions.length <= 1) {
+		return null;
+	}
+
+	const candidate = splittedByCaptions[1].split(',"videoDetails"')[0];
+	if (!candidate) {
+		return null;
+	}
+
+	try {
+		const parsed = JSON.parse(candidate.replace(/\n/g, ""));
+		return (parsed?.playerCaptionsTracklistRenderer as TracklistRenderer | undefined) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function extractJsonObjectAfterMarker(source: string, marker: string): string | null {
+	const markerIndex = source.indexOf(marker);
+	if (markerIndex < 0) {
+		return null;
+	}
+
+	const objectStart = source.indexOf("{", markerIndex + marker.length);
+	if (objectStart < 0) {
+		return null;
+	}
+
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let index = objectStart; index < source.length; index += 1) {
+		const char = source[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				continue;
+			}
+
+			if (char === "\\") {
+				escaped = true;
+				continue;
+			}
+
+			if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+
+		if (char === "{") {
+			depth += 1;
+			continue;
+		}
+
+		if (char === "}") {
+			depth -= 1;
+			if (depth === 0) {
+				return source.slice(objectStart, index + 1);
+			}
+		}
+	}
+
+	return null;
 }
 
 function buildTimedTextUrlCandidates(
