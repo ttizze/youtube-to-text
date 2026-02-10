@@ -84,17 +84,29 @@
 	<h1>{t.pageTitle}</h1>
 	<p class="description">{t.siteDescription}</p>
 
-	<form onsubmit={(e) => { e.preventDefault(); fetchTranscript(); }}>
-		<input
-			type="text"
-			bind:value={url}
-			placeholder={t.urlPlaceholder}
-			disabled={loading}
-		/>
-		<button type="submit" disabled={loading}>
-			{loading ? t.fetchingButton : t.fetchButton}
-		</button>
-	</form>
+		<form onsubmit={(e) => { e.preventDefault(); fetchTranscript(); }}>
+			<input
+				type="text"
+				bind:value={url}
+				placeholder={t.urlPlaceholder}
+				disabled={loading}
+			/>
+			<button
+				type="submit"
+				class="tool-button fetch-button"
+				disabled={loading}
+				aria-label={loading ? t.fetchingButton : t.fetchButton}
+				title={loading ? t.fetchingButton : t.fetchButton}
+			>
+				<span class="btn-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24">
+						<polygon points="8,6 18,12 8,18" />
+						<line x1="5" y1="6" x2="5" y2="18" />
+					</svg>
+				</span>
+				<span class="btn-label">{loading ? t.fetchingButton : t.fetchButton}</span>
+			</button>
+		</form>
 
 	{#if error}
 		<div class="error">{error}</div>
@@ -298,6 +310,10 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.45rem;
+	}
+
+	.fetch-button {
+		min-width: 8.75rem;
 	}
 
 	.btn-icon {
