@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractVideoId, fetchTranscriptWithFallback, parseTranscriptBody } from "./service";
+import { extractVideoId, fetchTranscriptWithFallback, parseTranscriptBody, transcriptToText } from "./service";
 
 describe("extractVideoId", () => {
 	it("主要な YouTube URL パターンを抽出できる", () => {
@@ -66,6 +66,36 @@ describe("parseTranscriptBody", () => {
 			{ text: "hello world", offset: 440, duration: 8560 },
 			{ text: "line\n2", offset: 9000, duration: 4719 },
 		]);
+	});
+});
+
+describe("transcriptToText", () => {
+	it("短いギャップでは文を連結し、長いギャップで段落を分ける", () => {
+		const actual = transcriptToText([
+			{ text: "今日は", offset: 0, duration: 500 },
+			{ text: "天気がいいです。", offset: 700, duration: 1_000 },
+			{ text: "散歩に", offset: 3_000, duration: 500 },
+			{ text: "行きましょう", offset: 3_650, duration: 500 },
+			{ text: "！", offset: 4_200, duration: 300 },
+			{ text: "次の話題です", offset: 8_500, duration: 500 },
+			{ text: "よろしくお願いします。", offset: 9_100, duration: 600 },
+		]);
+
+		expect(actual).toBe("今日は天気がいいです。\n散歩に行きましょう！\n\n次の話題ですよろしくお願いします。");
+	});
+
+	it("英語は単語間スペースを維持し、句読点前に余計なスペースを入れない", () => {
+		const actual = transcriptToText([
+			{ text: "hello", offset: 0, duration: 400 },
+			{ text: "world", offset: 450, duration: 300 },
+			{ text: "!", offset: 820, duration: 200 },
+			{ text: "this", offset: 2_400, duration: 300 },
+			{ text: "is", offset: 2_750, duration: 300 },
+			{ text: "a", offset: 3_100, duration: 300 },
+			{ text: "test.", offset: 3_450, duration: 300 },
+		]);
+
+		expect(actual).toBe("hello world!\nthis is a test.");
 	});
 });
 

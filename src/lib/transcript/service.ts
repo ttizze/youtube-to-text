@@ -52,6 +52,13 @@ const DEFAULT_WEB_CLIENT_VERSION = "2.20260206.08.00";
 const DEFAULT_ANDROID_CLIENT_VERSION = "20.10.38";
 const YOUTUBE_VIDEO_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
 const FALLBACK_RETRY_DELAYS_MS = [0, 300, 900];
+const SENTENCE_BREAK_GAP_MS = 1_200;
+const PARAGRAPH_BREAK_GAP_MS = 3_000;
+const MAX_SENTENCE_CHARS = 120;
+const SENTENCE_END_REGEX = /[。．.!?！？…]["'”’」』）\]]*$/;
+const CJK_CHAR_REGEX = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const NO_SPACE_BEFORE_REGEX = /^[,.:;!?%)\]}>"'”’」』、。！？]/;
+const NO_SPACE_AFTER_REGEX = /[(\[{<"'“‘「『（【]$/;
 
 export function extractVideoId(input: string): string | null {
 	const value = input.trim();
@@ -133,7 +140,64 @@ export function transcriptToSrt(items: TranscriptItem[]): string {
 }
 
 export function transcriptToText(items: TranscriptItem[]): string {
-	return items.map((item) => item.text).join("\n");
+	if (items.length === 0) {
+		return "";
+	}
+
+	const sortedItems = [...items].sort((left, right) => left.offset - right.offset);
+	const paragraphs: string[] = [];
+	const currentParagraphSentences: string[] = [];
+	let currentSentence = "";
+	let previousEndMs: number | null = null;
+
+	const flushSentence = () => {
+		const normalized = currentSentence.trim();
+		if (!normalized) {
+			currentSentence = "";
+			return;
+		}
+
+		currentParagraphSentences.push(normalized);
+		currentSentence = "";
+	};
+
+	const flushParagraph = () => {
+		if (currentParagraphSentences.length === 0) {
+			return;
+		}
+
+		paragraphs.push(currentParagraphSentences.join("\n"));
+		currentParagraphSentences.length = 0;
+	};
+
+	for (const item of sortedItems) {
+		const chunk = normalizeCaptionChunkForReading(item.text);
+		if (!chunk) {
+			continue;
+		}
+
+		if (previousEndMs !== null) {
+			const gapMs = Math.max(0, item.offset - previousEndMs);
+			if (gapMs >= PARAGRAPH_BREAK_GAP_MS) {
+				flushSentence();
+				flushParagraph();
+			} else if (gapMs >= SENTENCE_BREAK_GAP_MS) {
+				flushSentence();
+			}
+		}
+
+		currentSentence = appendChunk(currentSentence, chunk);
+
+		if (SENTENCE_END_REGEX.test(chunk) || currentSentence.length >= MAX_SENTENCE_CHARS) {
+			flushSentence();
+		}
+
+		previousEndMs = Math.max(item.offset, item.offset + item.duration);
+	}
+
+	flushSentence();
+	flushParagraph();
+	return paragraphs.join("\n\n");
 }
 
 export async function fetchTranscriptWithFallback(
@@ -761,4 +825,49 @@ function decodeEntities(value: string): string {
 		const named = namedEntities[entity.toLowerCase()];
 		return named ?? full;
 	});
+}
+
+function normalizeCaptionChunkForReading(value: string): string {
+	return value
+		.replace(/\s*\n+\s*/g, " ")
+		.replace(/\s{2,}/g, " ")
+		.trim();
+}
+
+function appendChunk(current: string, next: string): string {
+	if (!current) {
+		return next;
+	}
+
+	if (!needsSpaceBetween(current, next)) {
+		return `${current}${next}`;
+	}
+
+	return `${current} ${next}`;
+}
+
+function needsSpaceBetween(left: string, right: string): boolean {
+	const leftLast = left.at(-1);
+	const rightFirst = right.at(0);
+	if (!leftLast || !rightFirst) {
+		return false;
+	}
+
+	if (/\s/.test(leftLast) || /\s/.test(rightFirst)) {
+		return false;
+	}
+
+	if (CJK_CHAR_REGEX.test(leftLast) || CJK_CHAR_REGEX.test(rightFirst)) {
+		return false;
+	}
+
+	if (NO_SPACE_BEFORE_REGEX.test(right)) {
+		return false;
+	}
+
+	if (NO_SPACE_AFTER_REGEX.test(left)) {
+		return false;
+	}
+
+	return true;
 }

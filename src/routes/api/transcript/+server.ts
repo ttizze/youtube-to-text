@@ -10,8 +10,12 @@ import {
 
 const TRANSCRIPT_CACHE_SECONDS = 60 * 60 * 24;
 
+interface CloudflareCacheStorage extends CacheStorage {
+	default?: Cache;
+}
+
 function getEdgeCache(): Cache | null {
-	const cacheStorage = (globalThis as { caches?: CacheStorage }).caches;
+	const cacheStorage = (globalThis as { caches?: CloudflareCacheStorage }).caches;
 	return cacheStorage?.default ?? null;
 }
 
