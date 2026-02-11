@@ -48,7 +48,18 @@ npm run build
 
 ### 3. Analytics (Optional)
 
-Cloudflare Web Analytics is recommended (privacy-friendly, no cookie banner needed).
+#### Google Analytics 4 (GA4)
+
+1. Go to Google Analytics and create/select a GA4 property
+2. Copy your Measurement ID (format: `G-XXXXXXXXXX`)
+3. Set `PUBLIC_GA_MEASUREMENT_ID` in Cloudflare Pages > Settings > Environment variables
+4. Redeploy after setting the value
+
+If `PUBLIC_GA_MEASUREMENT_ID` is not set, GA4 script is not loaded.
+
+#### Cloudflare Web Analytics (Alternative)
+
+Cloudflare Web Analytics is privacy-friendly and can be used instead of GA4.
 
 1. Go to Cloudflare Dashboard > Web Analytics
 2. Add site and copy the beacon script
