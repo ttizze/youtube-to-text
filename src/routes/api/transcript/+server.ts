@@ -9,6 +9,7 @@ import {
 } from "$lib/transcript/service";
 
 const TRANSCRIPT_CACHE_SECONDS = 60 * 60 * 24;
+const TRANSCRIPT_CACHE_KEY_VERSION = "v2";
 
 interface CloudflareCacheStorage extends CacheStorage {
 	default?: Cache;
@@ -25,6 +26,7 @@ function createTranscriptCacheKey(requestUrl: string, videoId: string, lang: str
 	url.search = new URLSearchParams({
 		videoId,
 		lang,
+		v: TRANSCRIPT_CACHE_KEY_VERSION,
 	}).toString();
 	return new Request(url.toString(), { method: "GET" });
 }
