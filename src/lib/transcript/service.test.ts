@@ -4,6 +4,7 @@ import { extractVideoId, fetchTranscriptWithFallback, parseTranscriptBody, trans
 describe("extractVideoId", () => {
 	it("主要な YouTube URL パターンを抽出できる", () => {
 		expect(extractVideoId("RZELBd78SDc")).toBe("RZELBd78SDc");
+		expect(extractVideoId("RZELBd78SDc?t=12s")).toBe("RZELBd78SDc");
 		expect(extractVideoId("https://youtu.be/RZELBd78SDc?si=57x4Pw1t-N1s90WM")).toBe(
 			"RZELBd78SDc"
 		);
@@ -17,6 +18,19 @@ describe("extractVideoId", () => {
 		expect(extractVideoId("https://www.youtube.com/live/RZELBd78SDc?feature=share")).toBe(
 			"RZELBd78SDc"
 		);
+	});
+
+	it("YouTube のリダイレクト/アトリビューション URL からも videoId を抽出できる", () => {
+		expect(
+			extractVideoId(
+				"https://www.youtube.com/attribution_link?u=%2Fwatch%3Fv%3DRZELBd78SDc%26t%3D12s%26feature%3Dshare&a=123"
+			)
+		).toBe("RZELBd78SDc");
+		expect(
+			extractVideoId(
+				"https://www.youtube.com/redirect?event=video_description&q=https%3A%2F%2Fyoutu.be%2FRZELBd78SDc%3Ft%3D12s&redir_token=abc"
+			)
+		).toBe("RZELBd78SDc");
 	});
 
 	it("不正 URL は null を返す", () => {

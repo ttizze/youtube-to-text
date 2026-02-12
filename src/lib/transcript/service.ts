@@ -51,6 +51,7 @@ const ANDROID_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Andro
 const DEFAULT_WEB_CLIENT_VERSION = "2.20260206.08.00";
 const DEFAULT_ANDROID_CLIENT_VERSION = "20.10.38";
 const YOUTUBE_VIDEO_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
+const MAX_VIDEO_ID_EXTRACTION_DEPTH = 3;
 const FALLBACK_RETRY_DELAYS_MS = [0, 300, 900];
 const SENTENCE_BREAK_GAP_MS = 1_200;
 const PARAGRAPH_BREAK_GAP_MS = 3_000;
@@ -61,6 +62,14 @@ const NO_SPACE_BEFORE_REGEX = /^[,.:;!?%)\]}>"'”’」』、。！？]/;
 const NO_SPACE_AFTER_REGEX = /[(\[{<"'“‘「『（【]$/;
 
 export function extractVideoId(input: string): string | null {
+	return extractVideoIdInternal(input, 0);
+}
+
+function extractVideoIdInternal(input: string, depth: number): string | null {
+	if (depth > MAX_VIDEO_ID_EXTRACTION_DEPTH) {
+		return null;
+	}
+
 	const value = input.trim();
 	if (!value) {
 		return null;
@@ -70,10 +79,16 @@ export function extractVideoId(input: string): string | null {
 		return value;
 	}
 
+	// Accept a bare video id with extra suffix such as "?t=12s" or "#t=12s".
+	const idWithSuffixMatch = value.match(/^([a-zA-Z0-9_-]{11})(?:[?&#/].*)$/);
+	if (idWithSuffixMatch && YOUTUBE_VIDEO_ID_REGEX.test(idWithSuffixMatch[1] ?? "")) {
+		return idWithSuffixMatch[1] ?? null;
+	}
+
 	const candidates = value.includes("://") ? [value] : [`https://${value}`, value];
 
 	for (const candidate of candidates) {
-		const idFromUrl = extractVideoIdFromUrl(candidate);
+		const idFromUrl = extractVideoIdFromUrl(candidate, depth);
 		if (idFromUrl) {
 			return idFromUrl;
 		}
@@ -91,10 +106,19 @@ export function extractVideoId(input: string): string | null {
 		value.match(
 			/(?:youtube\.com\/.*(?:v=|\/embed\/|\/shorts\/|\/live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
 		) ?? null;
-	return fallbackMatch?.[1] ?? null;
+	if (fallbackMatch?.[1]) {
+		return fallbackMatch[1];
+	}
+
+	const decoded = safeDecodeURIComponent(value);
+	if (decoded && decoded !== value) {
+		return extractVideoIdInternal(decoded, depth + 1);
+	}
+
+	return null;
 }
 
-function extractVideoIdFromUrl(value: string): string | null {
+function extractVideoIdFromUrl(value: string, depth: number): string | null {
 	try {
 		const url = new URL(value);
 		const hostname = url.hostname.toLowerCase();
@@ -123,7 +147,34 @@ function extractVideoIdFromUrl(value: string): string | null {
 			}
 		}
 
+		// YouTube sometimes wraps links as redirect/attribution URLs where the actual watch URL is nested
+		// in a query param (already decoded by URLSearchParams).
+		if (depth < MAX_VIDEO_ID_EXTRACTION_DEPTH) {
+			for (const param of ["u", "q", "url"]) {
+				const nested = url.searchParams.get(param);
+				if (!nested) {
+					continue;
+				}
+
+				const normalized = nested.startsWith("/")
+					? `https://www.youtube.com${nested}`
+					: nested;
+				const nestedId = extractVideoIdInternal(normalized, depth + 1);
+				if (nestedId) {
+					return nestedId;
+				}
+			}
+		}
+
 		return null;
+	} catch {
+		return null;
+	}
+}
+
+function safeDecodeURIComponent(value: string): string | null {
+	try {
+		return decodeURIComponent(value);
 	} catch {
 		return null;
 	}
